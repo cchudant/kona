@@ -12,6 +12,7 @@ const fieldMapping = {
   encoding: torrent => toast(torrent['encoding'])
 }
 
+// https://wiki.theory.org/index.php/BitTorrentSpecification#Metainfo_File_Structure
 class TorrentInfo {
   constructor(torrent) {
     if (torrent instanceof Buffer) {
@@ -19,6 +20,7 @@ class TorrentInfo {
     }
 
     console.log(torrent)
+    console.log(convBuffers(torrent))
 
     Object.entries(fieldMapping).forEach(
       ([field, mapper]) => (this[field] = mapper(torrent))
@@ -26,5 +28,18 @@ class TorrentInfo {
   }
 }
 
+function convBuffers(raw) {
+  if (raw instanceof Array) {
+    return raw.map(v => v instanceof Buffer ? v.toString() : convBuffers(v))
+  }
+
+  if (raw instanceof Object) {
+    return Array.from(Object.entries(raw))
+      .map(([k, v]) => [k, v instanceof Buffer ? v.toString() : convBuffers(v)])
+      .reduce((o, [k, v]) => (o[k] = v, o), {})
+  }
+
+  return raw
+}
 
 module.exports = TorrentInfo

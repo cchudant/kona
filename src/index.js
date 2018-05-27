@@ -7,7 +7,5 @@ const torrent = new TorrentInfo(
   fs.readFileSync('gimp-2.10.2-setup.exe.torrent')
 )
 
-console.log(torrent)
-
-const conn = new TrackerConnection(url)
-conn.connect()
+// const conn = new TrackerConnection(url)
+// conn.connect()
