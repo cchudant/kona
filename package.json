@@ -12,5 +12,8 @@
   "license": "ISC",
   "devDependencies": {
     "prettier": "^1.12.1"
+  },
+  "dependencies": {
+    "bencode": "^2.0.0"
   }
 }
