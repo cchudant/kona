@@ -1,0 +1,16 @@
+{
+  "name": "nodetorrent",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "format": "prettier --write src/**/**.js",
+    "start": "node src"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "prettier": "^1.12.1"
+  }
+}
