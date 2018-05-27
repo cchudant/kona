@@ -39,7 +39,16 @@ function connectRead(buffer, transaction) {
   return buffer.slice(8, 16)
 }
 
-function announceWrite(connectionId, transactionId, infoHash, peerId, downloaded, left, uploaded, event, ) {
+function announceWrite(
+  connectionId,
+  transactionId,
+  infoHash,
+  peerId,
+  downloaded,
+  left,
+  uploaded,
+  event
+) {
   const buffer = Buffer.alloc(98)
 
   // connection_id
@@ -52,7 +61,11 @@ function announceWrite(connectionId, transactionId, infoHash, peerId, downloaded
   buffer.writeUInt32BE(transactionId, 12)
 
   // info_hash
-  
+  infoHash.copy(buffer, 16)
+
+  // peer_id
+  peerId.copy(buffer, 36)
+
   // peer_id
 
   return buffer

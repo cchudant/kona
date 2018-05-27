@@ -32,8 +32,16 @@ class TrackerConnection {
 
     const transaction = genTransaction()
 
-    await sendUdp(this._socket, connectWrite(transaction), this._hostname, this._port)
-    this._connectionId = connectRead(await awaitMessage(this._socket), transaction)
+    await sendUdp(
+      this._socket,
+      connectWrite(transaction),
+      this._hostname,
+      this._port
+    )
+    this._connectionId = connectRead(
+      await awaitMessage(this._socket),
+      transaction
+    )
 
     this._connected = true
   }
