@@ -1,13 +1,10 @@
-const {
-  genTransaction,
-  connectWrite,
-  connectRead,
-  announceWrite,
-  announceRead,
-} = require('./protocol')
 const { createSocket } = require('dgram')
 const { parse } = require('url')
 const EventEmitter = require('events')
+const { randomBytes } = require('crypto')
+const TrackerError = require('./TrackerError')
+
+const delay = t => new Promise(r => setTimeout(r, t))
 
 class TrackerConnection extends EventEmitter {
   constructor(url) {
@@ -29,108 +26,95 @@ class TrackerConnection extends EventEmitter {
     return this._port
   }
 
+  /// per packet protocol functions ///
+
   async connect({ timeout = 15000, trials = 8 } = {}) {
     this._socket = createSocket('udp4')
-
-    // generate random transaction id
-    const transactionId = genTransaction()
-
-    const request = connectWrite({ transactionId })
-
     this._startMessageHandler()
 
-    const { connectionId } = await new Promise((resolve, reject) => {
-      this._tryConnect(request, transactionId, timeout, trials, (err, message) => {
-        err ? reject(err) : resolve(message)
-      })
-    })
+    // write request
+    const transaction = this._genTransaction()
+    const request = Buffer.allocUnsafe(16)
+  
+    request.writeUInt32BE(0x00000417, 0) // protocol_id - magic constant
+    request.writeUInt32BE(0x27101980, 4)
+    request.writeUInt32BE(0, 8) // action - connect
+    request.writeUInt32BE(transaction, 12) // transaction_id
+
+    // send & wait for response
+    const { response } = await this._transaction(request, transaction, { timeout, trials })
+
+    // read response
+    const connectionId = response.slice(8, 16) // connection_id
 
     this._connectionId = connectionId
     this._connected = true
   }
 
-  _tryConnect(request, transaction, timeout, nmax, cb, n = 0) {
-    console.log(this._socket)
-    console.log(request, 0, request.length, Number(this.port), this.hostname)
-    this._socket.send(request, 0, request.length, Number(this.port), this.hostname, err => {
-      if (err) cb(new TrackerError(err))
+  /// under the hood transaction management /// 
 
-      console.log('sent', request, 'n', n)
+  async _transaction(request, transaction, { timeout, trials }, n = 0) {
+    // send message
+    console.log('send')
+    await new Promise((rs, rj) =>
+      this._socket.send(request, this._port, this._hostname, e => e ? rj(e) : rs())
+    )
+    console.log('sent')
 
-      this._startMessageHandler()
+    // wait for response or timeout
+    const res = await Promise.race([
+      this._waitTransaction(transaction),
+      delay(n < trials ? 2 ** n * timeout : timeout).then(() => {})
+    ])
+    console.log('res', res)
 
-      let listener = null
-      let retry = null
+    if (!res) {
+      // message not received
+      if (n < trials)
+        return this._transaction(
+          request,
+          transaction,
+          { timeout, trials },
+          n + 1
+        )
+      else throw new TrackerError("Can't connect to host.")
+    } else {
+      // message received
+      return res
+    }
+  }
 
-      if (n < nmax) { // don't retry after nmax trials
-
-        // retry if no response
-        retry = setTimeout(() => {
-          this.removeListener('connectionResponse', listener)
-          this._tryConnect(request, transaction, timeout, nmax, cb, n + 1)
-        }, 2 ** n * timeout)
-
-      } else {
-
-        // no luck, they don't respond
-        retry = setTimeout(() => {
-          this.removeListener('connectionResponse', listener)
-          cb(new TrackerError("Can't connect to host."))
-        }, 15000)
+  _waitTransaction(transaction) {
+    return new Promise(resolve => {
+      const listener = obj => {
+        
+        // match the transaction
+        if (obj.transactionId === transaction) {
+          resolve(obj)
+          this.removeListener('trackerResponse', listener) // remove listener
+        }
 
       }
 
-      listener = response => {
-        // yay response!
-        retry && clearTimeout(retry) // prevent retry from running
-
-        console.log('received')
-
-        if (response.transactionId === transaction)
-          cb(null, response)
-      }
-
-      this.on('connectionResponse', listener)
-
+      this.on('trackerResponse', listener)
     })
   }
 
   _startMessageHandler() {
-    this._socket.on('message', buffer => {
-      console.log(buffer)
-      const action = buffer.readUInt32BE(0) // action
-      const transactionId = buffer.readUInt32BE(4) // transaction_id
+    this._socket.on('message', response => {
+      if (response.length < 8) return // ignore incorrect packets
+      console.log(response)
 
-      switch (action) {
-        case 0: {
-          const connectionId = buffer.slice(8, 16) // connection_id
-          this.emit('connectionResponse', {
-            action,
-            transactionId,
-            connectionId
-          })
-        }
-        case 1: {
-        }
-        case 2: {
-        }
-      }
+      // read packet header
+      const action = response.readUInt32BE(0) // action
+      const transactionId = response.readUInt32BE(4) // transaction_id
+
+      this.emit('trackerResponse', { action, transactionId, response })
     })
   }
 
-  async announce(torrent, port = 6881) {
-    const transaction = genTransaction()
-
-    const request = connectWrite({ transactionId: transaction })
-    await sendUdp(this._socket, request, this._hostname, this._port)
-
-    const response = await awaitMessage(this._socket)
-    const { transactionId, interval, leechers, seeders } = announceRead(
-      response
-    )
-
-    if (transactionId !== transaction)
-      throw new TrackerError('The transaction did not match')
+  _genTransaction() {
+    return randomBytes(4).readUInt32BE(0)
   }
 }
 

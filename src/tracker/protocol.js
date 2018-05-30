@@ -1,8 +1,4 @@
-const { randomBytes } = require('crypto')
 
-function genTransaction() {
-  return randomBytes(4).readUInt32BE(0)
-}
 
 function connectWrite({ transactionId }) {
   const buffer = Buffer.alloc(16)
@@ -91,5 +87,5 @@ function announceRead(buffer, transaction) {
 module.exports = {
   connectWrite,
   connectRead,
-  genTransaction,
+  genTransaction
 }

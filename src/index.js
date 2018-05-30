@@ -11,5 +11,6 @@ const conn = new TrackerConnection('udp://tracker.leechers-paradise.org:6969')
 console.log(conn)
 conn.connect().then(() => {
   console.log('connected')
-  conn.announce(torrent)
+  return conn.announce(torrent)
 })
+.catch(console.error)
