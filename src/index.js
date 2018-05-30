@@ -7,10 +7,10 @@ const torrent = new TorrentInfo(
   fs.readFileSync('gimp-2.10.2-setup.exe.torrent')
 )
 
-const conn = new TrackerConnection('udp://tracker.leechers-paradise.org:6969')
-console.log(conn)
-conn.connect().then(() => {
-  console.log('connected')
-  return conn.announce(torrent)
-})
-.catch(console.error)
+new TrackerConnection(torrent.announce)
+  .connect()
+  .then(() => conn.getPeers(torrent))
+  .then(peers => {
+    console.log(peers)
+  })
+  .catch(console.error)

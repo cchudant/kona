@@ -1,1 +1,1 @@
-module.exports = class TrackerError {}
+module.exports = class TrackerError extends Error {}

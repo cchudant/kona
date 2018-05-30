@@ -3,6 +3,7 @@ const { parse } = require('url')
 const EventEmitter = require('events')
 const { randomBytes } = require('crypto')
 const TrackerError = require('./TrackerError')
+const peerId = require('./peerId')
 
 const delay = t => new Promise(r => setTimeout(r, t))
 
@@ -17,7 +18,6 @@ class TrackerConnection extends EventEmitter {
     this._hostname = hostname
     this._port = port
     this._connectionId = MAGIC // unicorn
-    console.log(this._connectionId)
   }
 
   get connected() {
@@ -38,23 +38,39 @@ class TrackerConnection extends EventEmitter {
     this._socket = createSocket('udp4')
     this._startMessageHandler()
 
-    const { connectionId } = this._protocolConnect(options)
+    const { connectionId } = await this._protocolConnect(options)
     this._connectionId = connectionId
     this._connected = true
   }
 
-  async announce(data, options) {
+  announce(data, options) {
+    return this._protocolAnnounce(data, options)
+  }
 
+  async getPeers(torrent, port = 6881, options) {
+    const { peers } =  await this._protocolAnnounce({
+      infoHash: torrent.infoHash,
+      peerId,
+      downloaded: Buffer.alloc(8),
+      left: torrent.size,
+      uploaded: Buffer.alloc(8),
+      event: 0,
+      ipAddress: 0,
+      key: randomBytes(4),
+      numWant: -1,
+      port
+    })
+
+    return peers.map(({ ipAddress, tcpPort }) => ({ ipAddress: ipAddress.join('.'), tcpPort }))
   }
 
   /// per packet protocol functions ///
 
   async _protocolConnect(options) {
-
     // write request
     const transaction = this._genTransaction()
     const request = Buffer.allocUnsafe(16)
-  
+
     this._connectionId.copy(request, 0, 0, 8) // connection_id
     request.writeUInt32BE(0, 8) // action - connect
     request.writeUInt32BE(transaction, 12) // transaction_id
@@ -63,31 +79,44 @@ class TrackerConnection extends EventEmitter {
     const { response } = await this._transaction(request, transaction, options)
 
     // read response
-    if (buffer.length < 16)
+    if (response.length < 16)
       throw new TrackerError('The received response size is invalid')
     const connectionId = response.slice(8, 16) // connection_id
 
     return { connectionId }
   }
-  
-  async _protocolAnnounce({ infoHash, peerId, downloaded, left, uploaded, event, ipAddress, key, numWant, port }, options) {
 
+  async _protocolAnnounce(
+    {
+      infoHash,
+      peerId,
+      downloaded,
+      left,
+      uploaded,
+      event,
+      ipAddress,
+      key,
+      numWant,
+      port
+    },
+    options
+  ) {
     // write request
     const transaction = this._genTransaction()
     const request = Buffer.alloc(98)
-  
+
     this._connectionId.copy(request, 0, 0, 8) // connection_id
     request.writeUInt32BE(1, 8) // action - announce
     request.writeUInt32BE(transaction, 12) // transaction_id
     infoHash.copy(request, 16, 0, 20) // info_hash
     peerId.copy(request, 36, 0, 20) // peer_id
-    request.writeUInt64BE(downloaded, 56) // downloaded
-    request.writeUInt64BE(left, 64) // left
+    downloaded.copy(request, 56, 0, 8) // downloaded
+    left.copy(request, 64, 0, 8) // left
     request.writeUInt32BE(uploaded, 72) // uploaded
     request.writeUInt32BE(event, 80) // event
     request.writeUInt32BE(ipAddress, 84) // IP address
     request.writeUInt32BE(key, 88) // key
-    request.writeUInt32BE(numWant, 92) // num_want
+    request.writeInt32BE(numWant, 92) // num_want
     request.writeUInt16BE(port, 96) // port
 
     // send & wait for response
@@ -95,36 +124,37 @@ class TrackerConnection extends EventEmitter {
 
     if (response.length < 20)
       throw new TrackerError('The received response size is invalid')
-  
+
     // read response
     const interval = response.readUInt32BE(8) // interval
     const leechers = response.readUInt32BE(12) // leechers
-    const seedersLen = response.readUInt32BE(16) // seeders
+    const seeders = response.readUInt32BE(16) // seeders
 
-    if (response.length < 20 + 6 * seedersLen)
+    if ((response.length - 20) % 6)
       throw new TrackerError('The received response size is invalid')
-      
-    const seeders = []
-    for (let n = 0; n < seedersLen; n++) {
-      const ipAddress = response.readUInt32BE(20 + 6 * n) // IP address
+
+    const peers = []
+    for (let n = 0; n < (response.length - 20) / 6; n++) {
+      const ipAddress = response.slice(20 + 6 * n, 24 + 6 * n) // IP address
       const tcpPort = response.readUInt16BE(24 + 6 * n) // TCP port
-      seeders.push({ ipAddress, tcpPort })
+      peers.push({ ipAddress, tcpPort })
     }
 
-    return { interval, leechers, seeders }
+    return { interval, leechers, seeders, peers }
   }
 
   async _protocolScrape({ infoHashes }, options) {
-
     // write request
     const transaction = this._genTransaction()
     const request = Buffer.allocUnsafe(16 + 20 * infoHashes.length)
-  
+
     this._connectionId.copy(request, 0, 0, 8) // connection_id
     request.writeUInt32BE(2, 8) // action - scrape
     request.writeUInt32BE(transaction, 12) // transaction_id
     // info_hash
-    infoHashes.forEach((infoHash, n) => Buffer.from(infoHash, 0, 20).copy(request, 16 + 20 * n, 0, 20));
+    infoHashes.forEach((infoHash, n) =>
+      Buffer.from(infoHash, 0, 20).copy(request, 16 + 20 * n, 0, 20)
+    )
 
     // send & wait for response
     const { response } = await this._transaction(request, transaction, options)
@@ -141,18 +171,28 @@ class TrackerConnection extends EventEmitter {
     return { infoHashes }
   }
 
-  /// under the hood transaction management /// 
+  /// under the hood transaction management ///
 
-  async _transaction(request, transaction, { timeout = 15000, trials = 8 } = {}, n = 0) {
+  async _transaction(
+    request,
+    transaction,
+    { timeout = 15000, trials = 8 } = {},
+    n = 0
+  ) {
     // send message
     await new Promise((rs, rj) =>
-      this._socket.send(request, this._port, this._hostname, e => e ? rj(e) : rs())
+      this._socket.send(
+        request,
+        this._port,
+        this._hostname,
+        e => (e ? rj(e) : rs())
+      )
     )
 
     // wait for response or timeout
     const res = await Promise.race([
       this._waitTransaction(transaction),
-      delay(n < trials ? 2 ** n * timeout : timeout).then(() => {})
+      delay(n < trials ? 2 ** n * timeout : timeout)
     ])
 
     if (!res) {
@@ -174,13 +214,11 @@ class TrackerConnection extends EventEmitter {
   _waitTransaction(transaction) {
     return new Promise(resolve => {
       const listener = obj => {
-        
         // match the transaction
         if (obj.transactionId === transaction) {
           resolve(obj)
           this.removeListener('trackerResponse', listener) // remove listener
         }
-
       }
 
       this.on('trackerResponse', listener)
@@ -190,7 +228,6 @@ class TrackerConnection extends EventEmitter {
   _startMessageHandler() {
     this._socket.on('message', response => {
       if (response.length < 8) return // ignore incorrect packets
-      console.log(response)
 
       // read packet header
       const action = response.readUInt32BE(0) // action

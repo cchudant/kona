@@ -1,4 +1,5 @@
-const bencode = require('bencode')
+const { createHash } = require('crypto')
+const { encode, decode } = require('bencode');
 
 const toast = o => o && o.toString()
 
@@ -15,15 +16,34 @@ const fieldMapping = {
 class TorrentInfo {
   constructor(torrent) {
     if (torrent instanceof Buffer) {
-      torrent = bencode.decode(torrent)
+      torrent = decode(torrent)
     }
-
-    console.log(torrent)
-    console.log(convBuffers(torrent))
 
     Object.entries(fieldMapping).forEach(
       ([field, mapper]) => (this[field] = mapper(torrent))
     )
+
+    this._raw = torrent
+  }
+
+  get infoHash() {
+    if (this._infoHash) return this._infoHash
+
+    const info = encode(this._raw.info)
+    const infoHash = createHash('sha1').update(info).digest()
+
+    this._infoHash = infoHash
+    return infoHash
+  }
+
+  get size() {
+    if (this._size) return this._size
+
+    const size = Buffer.alloc(8)
+    size.writeInt32BE(this._raw.info.length, 0)
+
+    this._size = size
+    return size
   }
 }
 
