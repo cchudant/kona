@@ -4,8 +4,7 @@ const toast = o => o && o.toString()
 
 const fieldMapping = {
   announce: torrent => toast(torrent['announce']),
-  announceList: torrent =>
-    (torrent['announce-list'] || []).map(toast),
+  announceList: torrent => (torrent['announce-list'] || []).map(toast),
   creationDate: torrent => torrent['creation date'],
   comment: torrent => toast(torrent['comment']),
   createdBy: torrent => toast(torrent['created by']),
@@ -30,13 +29,13 @@ class TorrentInfo {
 
 function convBuffers(raw) {
   if (raw instanceof Array) {
-    return raw.map(v => v instanceof Buffer ? v.toString() : convBuffers(v))
+    return raw.map(v => (v instanceof Buffer ? v.toString() : convBuffers(v)))
   }
 
   if (raw instanceof Object) {
     return Array.from(Object.entries(raw))
       .map(([k, v]) => [k, v instanceof Buffer ? v.toString() : convBuffers(v)])
-      .reduce((o, [k, v]) => (o[k] = v, o), {})
+      .reduce((o, [k, v]) => ((o[k] = v), o), {})
   }
 
   return raw
