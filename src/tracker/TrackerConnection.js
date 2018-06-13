@@ -195,7 +195,7 @@ class TrackerConnection extends EventEmitter {
     // wait for response or timeout
     const res = await Promise.race([
       this._waitTransaction(transaction),
-      delay(n < trials ? 2 ** n * timeout : timeout)
+      delay(n < trials ? 2 ** n * timeout : timeout).then(() => false)
     ])
 
     if (!res) {

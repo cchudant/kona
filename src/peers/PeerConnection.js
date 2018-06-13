@@ -28,7 +28,7 @@ module.exports = class PeerConnection extends EventEmitter {
 
       // resolve on connect
       this._socket.connect(this._port, this._host, () => {
-        this._socket.removeListener(rj)
+        this._socket.removeListener('error', rj)
         rs()
       })
     })
@@ -39,7 +39,7 @@ module.exports = class PeerConnection extends EventEmitter {
   async _protocolHandshake({ pstr, reserved, infoHash, peerId }) {
     // write request
     const transaction = this._genTransaction(49 + pstr.length)
-    const request = Buffer.allocUnsafe(16)
+    const request = Buffer.allocUnsafe(pstr.length + 49)
 
     request.writeUInt8(0, pstr.length) // pstrlen
     pstr.copy(request, 1) // pstr
@@ -47,8 +47,8 @@ module.exports = class PeerConnection extends EventEmitter {
     infoHash.copy(request, pstr.length + 9, 0, 20) // info_hash
     preerId.copy(request, pstr.length + 29, 0, 20) // peer_id
 
-    // send
-    const { response } = await this._send(request, options)
+    this._send(request, options)
+    await this._waitResponse(true)
 
     // read response
     if (response.length < 16)
@@ -67,16 +67,21 @@ module.exports = class PeerConnection extends EventEmitter {
   }
 
   _waitResponse(handshake = false) {
-    return new Promise((rs, rj) => {
-      let buffer
+    return new Promise((resolve, reject) => {
 
       const handler = response => {
-        const clean = e => {
-          this._socket.removeListener(handler)
-          rj(e)
+        // handshake packet is not length-prefixed
+        let len = this._buffer && (handshake ? this._buffer.readUInt8(0) + 49 : this._buffer.readInt32BE(0) + 4)
+
+        this._buffer = len ? this._buffer.concat([this._buffer, response]) : response
+
+        if (this._buffer.length >= len) {
+          const packet = this._buffer.slice(0, len)
+          this._buffer = this._buffer.slice(len)
+
+          this._socket.removeListener('data', handler)
+          resolve(packet)
         }
-
-
       }
       this._socket.on('data', handler)
     })
