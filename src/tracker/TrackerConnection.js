@@ -41,6 +41,8 @@ class TrackerConnection extends EventEmitter {
     const { connectionId } = await this._protocolConnect(options)
     this._connectionId = connectionId
     this._connected = true
+
+    return this
   }
 
   announce(data, options) {

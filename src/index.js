@@ -10,10 +10,18 @@ const torrent = new TorrentInfo(
 
 new TrackerConnection(torrent.announce)
   .connect()
-  .then(() => conn.getPeers(torrent))
+  .then(conn => conn.getPeers(torrent))
   .then(peers => {
     console.log(peers)
-    const connection = new PeerConnection()
-    return connection.connect().then(() => connection)
+    return Promise.all(
+      peers
+        .slice(0, 5)
+        .map(({ ipAddress, tcpPort }) =>
+          new PeerConnection(ipAddress, tcpPort).connect(torrent)
+        )
+    )
+  })
+  .then(() => {
+    console.log(' yess ')
   })
   .catch(console.error)
