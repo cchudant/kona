@@ -3,7 +3,7 @@ const { parse } = require('url')
 const EventEmitter = require('events')
 const { randomBytes } = require('crypto')
 const TrackerError = require('./TrackerError')
-const peerId = require('./peerId')
+const { peerId } = require('../protocolConstants')
 
 const delay = t => new Promise(r => setTimeout(r, t))
 
@@ -48,7 +48,7 @@ class TrackerConnection extends EventEmitter {
   }
 
   async getPeers(torrent, port = 6881, options) {
-    const { peers } =  await this._protocolAnnounce({
+    const { peers } = await this._protocolAnnounce({
       infoHash: torrent.infoHash,
       peerId,
       downloaded: Buffer.alloc(8),
@@ -61,7 +61,10 @@ class TrackerConnection extends EventEmitter {
       port
     })
 
-    return peers.map(({ ipAddress, tcpPort }) => ({ ipAddress: ipAddress.join('.'), tcpPort }))
+    return peers.map(({ ipAddress, tcpPort }) => ({
+      ipAddress: ipAddress.join('.'),
+      tcpPort
+    }))
   }
 
   /// per packet protocol functions ///

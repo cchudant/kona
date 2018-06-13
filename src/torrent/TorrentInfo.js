@@ -1,5 +1,5 @@
 const { createHash } = require('crypto')
-const { encode, decode } = require('bencode');
+const { encode, decode } = require('bencode')
 
 const toast = o => o && o.toString()
 
@@ -30,7 +30,9 @@ class TorrentInfo {
     if (this._infoHash) return this._infoHash
 
     const info = encode(this._raw.info)
-    const infoHash = createHash('sha1').update(info).digest()
+    const infoHash = createHash('sha1')
+      .update(info)
+      .digest()
 
     this._infoHash = infoHash
     return infoHash
