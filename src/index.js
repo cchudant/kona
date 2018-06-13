@@ -18,10 +18,18 @@ new TrackerConnection(torrent.announce)
         .slice(0, 5)
         .map(({ ipAddress, tcpPort }) =>
           new PeerConnection(ipAddress, tcpPort).connect(torrent)
+            .then(conn => {
+              console.log(conn)
+              return conn
+            })
+            .catch(e => {
+              console.log(e)
+              return e
+            })
         )
     )
   })
-  .then(() => {
-    console.log(' yess ')
+  .then(all => {
+    console.log(' yess ', all)
   })
   .catch(console.error)

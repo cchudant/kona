@@ -11,8 +11,6 @@ module.exports = class PeerConnection extends EventEmitter {
     this._host = host
     this._port = port
 
-    console.log(`host: ${this._host} port: ${this._port}`)
-
     this._socket = new Socket()
   }
 
@@ -20,7 +18,6 @@ module.exports = class PeerConnection extends EventEmitter {
     return this.catchErrorEvent(async () => {
       // connect
       await this._connect()
-      console.log(`host: ${this._host} port: ${this._port} Connected!`)
   
       // handshake
       const {
@@ -28,14 +25,13 @@ module.exports = class PeerConnection extends EventEmitter {
         infoHash: recHash,
         peerId: recId
       } = await this._protocolHandshake({ pstr, reserved, infoHash, peerId })
-  
+
       if (!pstr.equals(recP))
         throw new PeerError('Protocol not supported: ' + recP)
       if (!recHash.equals(infoHash))
         throw new PeerError('Wrong infoHash received: ' + infoHash)
-      if (!recId.equals(peerId))
-        throw new PeerError('Wrong peer id received: ' + peerId)
-  
+      
+      this._peerId = recId
       return this
     })
   }
@@ -59,7 +55,7 @@ module.exports = class PeerConnection extends EventEmitter {
     // write request
     const request = Buffer.allocUnsafe(pstr.length + 49)
 
-    request.writeUInt8(0, pstr.length) // pstrlen
+    request.writeUInt8(pstr.length, 0) // pstrlen
     pstr.copy(request, 1) // pstr
     reserved.copy(request, pstr.length + 1, 0, 8) // reserved
     infoHash.copy(request, pstr.length + 9, 0, 20) // info_hash
@@ -67,10 +63,7 @@ module.exports = class PeerConnection extends EventEmitter {
 
     // write & wait for response
     this._socket.write(request)
-    console.log(`host: ${this._host} port: ${this._port} Handshake written!`)
-    console.log(request)
     const response = await this._waitResponse(true)
-    console.log(`host: ${this._host} port: ${this._port} Response!`)
 
     {
       // read response
@@ -93,7 +86,6 @@ module.exports = class PeerConnection extends EventEmitter {
   _waitResponse(handshake = false) {
     return new Promise(resolve => {
       const handler = response => {
-        console.log(`host: ${this._host} port: ${this._port} Received ${response.length}B, now ${this._buffer}B`)
         // handshake packet is not length-prefixed
         let len =
           this._buffer &&
@@ -103,7 +95,7 @@ module.exports = class PeerConnection extends EventEmitter {
             : this._buffer.readInt32BE(0) + 4)
 
         this._buffer = len
-          ? this._buffer.concat([this._buffer, response])
+          ? Buffer.concat([this._buffer, response])
           : response
 
         if (this._buffer.length >= len) {
@@ -114,7 +106,6 @@ module.exports = class PeerConnection extends EventEmitter {
           resolve(packet)
         }
       }
-      console.log('listener')
       this._socket.on('data', handler)
     })
   }
