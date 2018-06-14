@@ -15,21 +15,14 @@ new TrackerConnection(torrent.announce)
     console.log(peers)
     return Promise.all(
       peers
-        .slice(0, 5)
+        .slice(0, 20)
         .map(({ ipAddress, tcpPort }) =>
           new PeerConnection(ipAddress, tcpPort).connect(torrent)
-            .then(conn => {
-              console.log(conn)
-              return conn
-            })
-            .catch(e => {
-              console.log(e)
-              return e
-            })
+            .catch(e => e)
         )
     )
   })
   .then(all => {
-    console.log(' yess ', all)
+    console.log(' yess ', all.filter(e => e instanceof PeerConnection).length)
   })
   .catch(console.error)

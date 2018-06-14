@@ -12,9 +12,12 @@ module.exports = class PeerConnection extends EventEmitter {
     this._port = port
 
     this._socket = new Socket()
+
+    this._socket.setTimeout(3000)
+    this._socket.on('data', data => console.log(this._host, this._port, [...data].map(n => n.toString(16)).map(n => n < 10 ? '0' + n : n).join(' ')))
   }
 
-  connect({ infoHash }) {
+  connect({ infoHash, pieceLength }) {
     return this.catchErrorEvent(async () => {
       // connect
       await this._connect()
@@ -32,8 +35,17 @@ module.exports = class PeerConnection extends EventEmitter {
         throw new PeerError('Wrong infoHash received: ' + infoHash)
       
       this._peerId = recId
+      this._pieceLength = pieceLength
+      this._amChocking = true
+      this._amInterested = false
+      this._peerChoking = true
+      this._peerInterested = false
       return this
     })
+  }
+
+  download() {
+
   }
 
   _connect() {
@@ -108,6 +120,21 @@ module.exports = class PeerConnection extends EventEmitter {
       }
       this._socket.on('data', handler)
     })
+  }
+
+  _protocolChoke() {
+    // write request
+    const request = Buffer.allocUnsafe(5)
+
+    request.writeUInt8(0, 4) // len
+    request.writeUInt8(0, 1) // id
+
+    // write
+    this._socket.write(request)
+  }
+
+  _handleMessage() {
+
   }
 
   catchErrorEvent(func) {
