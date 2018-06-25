@@ -2,6 +2,7 @@ const { Socket } = require('net')
 const EventEmitter = require('events')
 const { pstr, peerId } = require('../protocolConstants')
 const PeerError = require('./PeerError')
+const BitField = require('./BitField')
 
 const reserved = Buffer.alloc(8)
 
@@ -14,11 +15,14 @@ module.exports = class PeerConnection extends EventEmitter {
     this._socket = new Socket()
 
     this._socket.setTimeout(3000)
-    this._socket.on('data', data => console.log(this._host, this._port, [...data].map(n => n.toString(16)).map(n => n < 10 ? '0' + n : n).join(' ')))
+
+    this.on('packet', p => {
+      console.log(`${[...this._peerId].filter(c => c > 32 && c < 126).map(c => String.fromCharCode(c)).join('')}\t${this._host}:${this._port}\t<${[...p].map(d => d.toString(16).padStart(2, '0')).join(' ')}>`)
+    })
   }
 
   connect({ infoHash, pieceLength }) {
-    return this.catchErrorEvent(async () => {
+    return this._catchErrorEvent(async () => {
       // connect
       await this._connect()
   
@@ -40,6 +44,9 @@ module.exports = class PeerConnection extends EventEmitter {
       this._amInterested = false
       this._peerChoking = true
       this._peerInterested = false
+
+      this._messageHandler()
+
       return this
     })
   }
@@ -133,11 +140,80 @@ module.exports = class PeerConnection extends EventEmitter {
     this._socket.write(request)
   }
 
-  _handleMessage() {
+  _messageHandler() {
+    this.on('_packet', buffer => {
+      const id = buffer.readUInt8(0)
 
+      const requireLength = (len, packet) => buffer.length < len && _error(new PeerError(`The packet length for ${packet} was invalid.`))
+
+      switch (id) {
+        case 0: { // choke
+          this._peerChoking = true
+          this.emit('choke', true)
+          break
+        }
+        case 1: { // unchoke
+          this._peerChoking = false
+          this.emit('choke', false)
+          break
+        }
+        case 2: { // interested
+          this._peerInterested = true
+          this.emit('interested', true)
+          break
+        }
+        case 3: { // not interested
+          this._peerInterested = false
+          this.emit('interested', false)
+          break
+        }
+        case 4: { // have
+          requireLength(2, 'have')
+          if (!this._bitfield) _error(new PeerError('A have packet was sent before bitfield packet'))
+          const index = buffer.readUInt32BE(1)
+          this._bitfield.set(index, true)
+          this.emit('have', index)
+          break
+        }
+        case 5: { // bitfield
+          requireLength(0 /* todo length */, 'bitfield')
+          this._bitfield = new BitField(buffer.slice(1), /* todo length */)
+          this.emit('bitfield', this._bitfield)
+          break
+        }
+      }
+    })
+
+    this._socket.on('data', data => {
+      this._buffer = Buffer.concat([this._buffer, data])
+      this._formPackets()
+    })
+    this._formPackets()
   }
 
-  catchErrorEvent(func) {
+  _formPackets() {
+    while (this._buffer.length >= 4) {
+      const size = this._buffer.readUInt32BE(0)
+      if (size > this._buffer.length - 4)
+        break // not enough received data
+
+      if (size === 0) // keep alive packet
+        continue
+
+      const packet = this._buffer.slice(4, size + 4)
+      this._buffer = this._buffer.slice(size + 4)
+      
+      this.emit('_packet', packet)
+    }
+  }
+
+  _error(err) {
+    if (!this.listenerCount('error'))
+      throw err
+    this.emit('error')
+  }
+
+  _catchErrorEvent(func) {
     return new Promise((resolve, reject) => {
       const handler = err => {
         this._socket.removeListener('error', handler)
